@@ -16,7 +16,7 @@ load_dotenv()
 MONGO_URI = os.getenv("MONGO_URI")
 
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-model = genai.GenerativeModel('gemini-1.5-flash-001')
+model = genai.GenerativeModel('gemini-1.0-pro')
 
 app = FastAPI(title="Locus Aura - Ecossistema Imobiliário Oficial")
 
