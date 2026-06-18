@@ -167,30 +167,36 @@ def listar_imoveis():
     return imoveis
 
 @app.get("/imoveis/busca-ia")
-def busca_ia(pergunta: str):
+async def busca_ia(pergunta: str):
     try:
-        import json
-        prompt = f"""
-        Analise a busca do usuário e extraia os filtros em JSON. Busca: "{pergunta}"
-        Siga este formato exato:
-        {{"aceita_pets": true, false ou null, "quartos": numero ou null, "tipo_imovel": "Casa", "Apartamento" ou null}}
-        Retorne APENAS o JSON válido.
-        """
-        response = model.generate_content(prompt)
-        filtros = json.loads(response.text.strip().replace('```json', '').replace('```', ''))
+        import re
+        from bson import ObjectId
         
-        query = {}
-        if filtros.get("aceita_pets") is not None: query["aceita_pets"] = filtros["aceita_pets"]
-        if filtros.get("quartos"): query["quartos"] = {"$gte": filtros["quartos"]}
-        if filtros.get("tipo_imovel"): query["tipo_imovel"] = filtros["tipo_imovel"].capitalize()
-
-        resultados = list(db.imoveis.find(query).limit(6))
+        todos_imoveis = list(db.imoveis.find({}))
+        
+        prompt = f"""
+        Analise a lista de imóveis e suas descrições: {str(todos_imoveis)}
+        O usuário busca por: "{pergunta}"
+        Com base na descrição, retorne APENAS uma lista JSON de strings com os IDs dos imóveis que melhor atendem ao pedido.
+        Exemplo de resposta: ["69e94d0eec718a74fb89338c", "69e94d0eec718a74fb893393"]
+        Se não houver nenhum, retorne [].
+        """
+        
+        response = model.generate_content(prompt)
+        texto_resposta = response.text.strip()
+        
+        ids_limpos = re.findall(r'[a-f0-9]{24}', texto_resposta)
+        
+        ids_objetos = [ObjectId(id) for id in ids_limpos]
+        resultados = list(db.imoveis.find({"_id": {"$in": ids_objetos}}))
+        
         for r in resultados: r["_id"] = str(r["_id"])
         
-        msg = "Encontrei estas opções no Locus Aura para você!" if resultados else "Não encontrei imóveis exatos, mas ajuste a busca!"
+        msg = "Encontrei estes imóveis ideais para você!" if resultados else "Não encontrei imóveis com essas características."
         return {"mensagem_ia": msg, "resultados": resultados}
-    except Exception:
-        return {"mensagem_ia": "Seja mais específico, ex: 'apartamento 2 quartos'.", "resultados": []}
+
+    except Exception as e:
+        return {"mensagem_ia": f"Erro na IA: {str(e)}", "resultados": []}
 
 @app.post("/login")
 def login(data: LoginData):
