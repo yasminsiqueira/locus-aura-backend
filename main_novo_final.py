@@ -10,13 +10,9 @@ from pydantic import BaseModel, Field, field_validator
 import re
 from bson import ObjectId
 from app_backend import LocusAuraAuth, PropertyManager
-import google.generativeai as genai
 
 load_dotenv()
 MONGO_URI = os.getenv("MONGO_URI")
-
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-model = genai.GenerativeModel('gemini-1.0-pro')
 
 app = FastAPI(title="Locus Aura - Ecossistema Imobiliário Oficial")
 
@@ -167,36 +163,55 @@ def listar_imoveis():
     return imoveis
 
 @app.get("/imoveis/busca-ia")
-async def busca_ia(pergunta: str):
+def busca_ia(pergunta: str):
     try:
+        import requests
+        import json
         import re
         from bson import ObjectId
+        import os
         
+        # 1. Coleta a chave da API diretamente[cite: 1, 4]
+        api_key = os.getenv("GEMINI_API_KEY")
+        
+        # 2. URL direta da API do Google (Bypass da biblioteca)
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+        
+        # 3. Busca os imóveis no MongoDB para a IA ler
         todos_imoveis = list(db.imoveis.find({}))
         
+        # 4. Prepara a instrução para a IA
         prompt = f"""
-        Analise a lista de imóveis e suas descrições: {str(todos_imoveis)}
+        Você é o assistente Locus Aura. Analise a seguinte lista de imóveis: {str(todos_imoveis)}
         O usuário busca por: "{pergunta}"
-        Com base na descrição, retorne APENAS uma lista JSON de strings com os IDs dos imóveis que melhor atendem ao pedido.
-        Exemplo de resposta: ["69e94d0eec718a74fb89338c", "69e94d0eec718a74fb893393"]
-        Se não houver nenhum, retorne [].
+        Retorne APENAS uma lista JSON com os códigos '_id' dos imóveis que melhor atendem ao pedido.
+        Exemplo: ["id1", "id2"]. Se não houver nenhum, retorne [].
         """
         
-        response = model.generate_content(prompt)
-        texto_resposta = response.text.strip()
+        # 5. Faz a requisição HTTP direta ignorando bugs de versão[cite: 6]
+        payload = {"contents": [{"parts": [{"text": prompt}]}]}
+        headers = {'Content-Type': 'application/json'}
         
-        ids_limpos = re.findall(r'[a-f0-9]{24}', texto_resposta)
+        resposta = requests.post(url, headers=headers, json=payload)
+        dados = resposta.json()
         
+        # Extrai a resposta real da IA
+        texto_ia = dados['candidates'][0]['content']['parts'][0]['text']
+        
+        # Limpa o texto e extrai os IDs
+        ids_limpos = re.findall(r'[a-f0-9]{24}', texto_ia)
         ids_objetos = [ObjectId(id) for id in ids_limpos]
-        resultados = list(db.imoveis.find({"_id": {"$in": ids_objetos}}))
         
+        # 6. Busca no MongoDB apenas os imóveis escolhidos pela IA[cite: 1]
+        resultados = list(db.imoveis.find({"_id": {"$in": ids_objetos}}))
         for r in resultados: r["_id"] = str(r["_id"])
         
-        msg = "Encontrei estes imóveis ideais para você!" if resultados else "Não encontrei imóveis com essas características."
+        msg = "Encontrei estas opções no Locus Aura para você!" if resultados else "Não encontrei imóveis com essas exatas características."
         return {"mensagem_ia": msg, "resultados": resultados}
 
     except Exception as e:
-        return {"mensagem_ia": f"Erro na IA: {str(e)}", "resultados": []}
+        # Se falhar, mostra o erro exato na tela
+        return {"mensagem_ia": f"Erro de conexão com a IA: {str(e)}", "resultados": []}
 
 @app.post("/login")
 def login(data: LoginData):
