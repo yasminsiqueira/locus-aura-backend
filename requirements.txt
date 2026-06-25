@@ -5,4 +5,4 @@ bcrypt
 PyJWT
 python-dotenv
 pydantic
-requirements
+requests
