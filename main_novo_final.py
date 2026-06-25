@@ -166,21 +166,20 @@ def listar_imoveis():
 def busca_ia(pergunta: str):
     try:
         import requests
-        import json
         import re
         from bson import ObjectId
         import os
         
-        # 1. Coleta a chave da API diretamente[cite: 1, 4]
-        api_key = os.getenv("GEMINI_API_KEY")
+        # Puxa a chave da Groq que você acabou de configurar no Render
+        api_key = os.getenv("AI_API_KEY")
         
-        # 2. URL direta da API do Google (Bypass da biblioteca)
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+        # URL e Modelo oficiais da Groq
+        url = "https://api.groq.com/openai/v1/chat/completions"
+        modelo = "llama3-8b-8192" 
         
-        # 3. Busca os imóveis no MongoDB para a IA ler
+        # Busca todos os imóveis no banco de dados
         todos_imoveis = list(db.imoveis.find({}))
         
-        # 4. Prepara a instrução para a IA
         prompt = f"""
         Você é o assistente Locus Aura. Analise a seguinte lista de imóveis: {str(todos_imoveis)}
         O usuário busca por: "{pergunta}"
@@ -188,21 +187,33 @@ def busca_ia(pergunta: str):
         Exemplo: ["id1", "id2"]. Se não houver nenhum, retorne [].
         """
         
-        # 5. Faz a requisição HTTP direta ignorando bugs de versão[cite: 6]
-        payload = {"contents": [{"parts": [{"text": prompt}]}]}
-        headers = {'Content-Type': 'application/json'}
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}"
+        }
         
+        payload = {
+            "model": modelo,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.1 # Temperatura baixa para a IA ser precisa e não inventar dados
+        }
+        
+        # Envia a requisição direta para a Groq
         resposta = requests.post(url, headers=headers, json=payload)
         dados = resposta.json()
         
-        # Extrai a resposta real da IA
-        texto_ia = dados['candidates'][0]['content']['parts'][0]['text']
+        # Se a Groq bloquear ou der erro de chave, avisa na tela
+        if "error" in dados:
+            return {"mensagem_ia": f"Erro na IA: {dados['error']['message']}", "resultados": []}
+            
+        # Pega a resposta da IA
+        texto_ia = dados['choices'][0]['message']['content']
         
-        # Limpa o texto e extrai os IDs
+        # Filtra apenas os IDs válidos do MongoDB
         ids_limpos = re.findall(r'[a-f0-9]{24}', texto_ia)
         ids_objetos = [ObjectId(id) for id in ids_limpos]
         
-        # 6. Busca no MongoDB apenas os imóveis escolhidos pela IA[cite: 1]
+        # Retorna os imóveis filtrados
         resultados = list(db.imoveis.find({"_id": {"$in": ids_objetos}}))
         for r in resultados: r["_id"] = str(r["_id"])
         
@@ -210,8 +221,7 @@ def busca_ia(pergunta: str):
         return {"mensagem_ia": msg, "resultados": resultados}
 
     except Exception as e:
-        # Se falhar, mostra o erro exato na tela
-        return {"mensagem_ia": f"Erro de conexão com a IA: {str(e)}", "resultados": []}
+        return {"mensagem_ia": f"Erro interno do Python: {str(e)}", "resultados": []}
 
 @app.post("/login")
 def login(data: LoginData):
