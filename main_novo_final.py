@@ -175,7 +175,7 @@ def busca_ia(pergunta: str):
         
         # URL e Modelo oficiais da Groq
         url = "https://api.groq.com/openai/v1/chat/completions"
-        modelo = "llama3-8b-8192" 
+        modelo = "llama-3.1-8b-instant"" 
         
         # Busca todos os imóveis no banco de dados
         todos_imoveis = list(db.imoveis.find({}))
