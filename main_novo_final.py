@@ -203,9 +203,7 @@ def busca_ia(pergunta: str):
         texto_ia = dados['choices'][0]['message']['content']
         
         # Limpa formatações extras do Markdown da IA
-        texto_limpo = texto_ia.strip().replace('```json', '').replace('
-```', '')
-        filtros = json.loads(texto_limpo)
+        texto_limpo = texto_ia.strip().replace('```json', '').replace('```', '')
         
         # Constrói a consulta otimizada para o MongoDB
         query = {}
