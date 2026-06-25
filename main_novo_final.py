@@ -174,7 +174,6 @@ def busca_ia(pergunta: str):
         url = "https://api.groq.com/openai/v1/chat/completions"
         modelo = "llama-3.1-8b-instant" 
         
-        # Prompt enxuto: Gastando pouquíssimos tokens!
         prompt = f"""
         Analise a busca do usuário e extraia os filtros de imóveis em JSON. Busca: "{pergunta}"
         Siga este formato exato:
@@ -202,8 +201,10 @@ def busca_ia(pergunta: str):
             
         texto_ia = dados['choices'][0]['message']['content']
         
-        # Limpa formatações extras do Markdown da IA
+        # --- AS DUAS LINHAS QUE PRECISAM ESTAR JUNTAS AQUI ---
         texto_limpo = texto_ia.strip().replace('```json', '').replace('```', '')
+        filtros = json.loads(texto_limpo)
+        # -----------------------------------------------------
         
         # Constrói a consulta otimizada para o MongoDB
         query = {}
@@ -211,7 +212,7 @@ def busca_ia(pergunta: str):
         if filtros.get("quartos"): query["quartos"] = {"$gte": filtros["quartos"]}
         if filtros.get("tipo_imovel"): query["tipo_imovel"] = filtros["tipo_imovel"].capitalize()
 
-        # O MongoDB faz o trabalho pesado e traz até 6 resultados
+        # Busca no banco
         resultados = list(db.imoveis.find(query).limit(6))
         for r in resultados: r["_id"] = str(r["_id"])
         
@@ -220,6 +221,8 @@ def busca_ia(pergunta: str):
 
     except Exception as e:
         return {"mensagem_ia": f"Seja mais específico, ex: 'apartamento 2 quartos'. Detalhe: {str(e)}", "resultados": []}
+
+    
 @app.post("/login")
 def login(data: LoginData):
     user = auth_service.login(data.email, data.password)
