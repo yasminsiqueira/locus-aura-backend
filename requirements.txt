@@ -4,6 +4,5 @@ pymongo
 bcrypt
 PyJWT
 python-dotenv
-google-generativeai
-certifi
 pydantic
+requirements
