@@ -166,25 +166,20 @@ def listar_imoveis():
 def busca_ia(pergunta: str):
     try:
         import requests
-        import re
-        from bson import ObjectId
+        import json
         import os
         
-        # Puxa a chave da Groq que você acabou de configurar no Render
+        # Puxa a chave da Groq
         api_key = os.getenv("AI_API_KEY")
-        
-        # URL e Modelo oficiais da Groq
         url = "https://api.groq.com/openai/v1/chat/completions"
-        modelo = "llama-3.1-8b-instant"
+        modelo = "llama-3.1-8b-instant" 
         
-        # Busca todos os imóveis no banco de dados
-        todos_imoveis = list(db.imoveis.find({}))
-        
+        # Prompt enxuto: Gastando pouquíssimos tokens!
         prompt = f"""
-        Você é o assistente Locus Aura. Analise a seguinte lista de imóveis: {str(todos_imoveis)}
-        O usuário busca por: "{pergunta}"
-        Retorne APENAS uma lista JSON com os códigos '_id' dos imóveis que melhor atendem ao pedido.
-        Exemplo: ["id1", "id2"]. Se não houver nenhum, retorne [].
+        Analise a busca do usuário e extraia os filtros de imóveis em JSON. Busca: "{pergunta}"
+        Siga este formato exato:
+        {{"aceita_pets": true, false ou null, "quartos": numero ou null, "tipo_imovel": "Casa", "Apartamento" ou null}}
+        Retorne APENAS o JSON válido.
         """
         
         headers = {
@@ -195,34 +190,38 @@ def busca_ia(pergunta: str):
         payload = {
             "model": modelo,
             "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.1 # Temperatura baixa para a IA ser precisa e não inventar dados
+            "temperature": 0.1
         }
         
-        # Envia a requisição direta para a Groq
+        # Envia a requisição
         resposta = requests.post(url, headers=headers, json=payload)
         dados = resposta.json()
         
-        # Se a Groq bloquear ou der erro de chave, avisa na tela
         if "error" in dados:
             return {"mensagem_ia": f"Erro na IA: {dados['error']['message']}", "resultados": []}
             
-        # Pega a resposta da IA
         texto_ia = dados['choices'][0]['message']['content']
         
-        # Filtra apenas os IDs válidos do MongoDB
-        ids_limpos = re.findall(r'[a-f0-9]{24}', texto_ia)
-        ids_objetos = [ObjectId(id) for id in ids_limpos]
+        # Limpa formatações extras do Markdown da IA
+        texto_limpo = texto_ia.strip().replace('```json', '').replace('
+```', '')
+        filtros = json.loads(texto_limpo)
         
-        # Retorna os imóveis filtrados
-        resultados = list(db.imoveis.find({"_id": {"$in": ids_objetos}}))
+        # Constrói a consulta otimizada para o MongoDB
+        query = {}
+        if filtros.get("aceita_pets") is not None: query["aceita_pets"] = filtros["aceita_pets"]
+        if filtros.get("quartos"): query["quartos"] = {"$gte": filtros["quartos"]}
+        if filtros.get("tipo_imovel"): query["tipo_imovel"] = filtros["tipo_imovel"].capitalize()
+
+        # O MongoDB faz o trabalho pesado e traz até 6 resultados
+        resultados = list(db.imoveis.find(query).limit(6))
         for r in resultados: r["_id"] = str(r["_id"])
         
-        msg = "Encontrei estas opções no Locus Aura para você!" if resultados else "Não encontrei imóveis com essas exatas características."
+        msg = "Encontrei estas opções no Locus Aura para você!" if resultados else "Não encontrei imóveis exatos, mas ajuste a busca!"
         return {"mensagem_ia": msg, "resultados": resultados}
 
     except Exception as e:
-        return {"mensagem_ia": f"Erro interno do Python: {str(e)}", "resultados": []}
-
+        return {"mensagem_ia": f"Seja mais específico, ex: 'apartamento 2 quartos'. Detalhe: {str(e)}", "resultados": []}
 @app.post("/login")
 def login(data: LoginData):
     user = auth_service.login(data.email, data.password)
